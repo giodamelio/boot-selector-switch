@@ -1,0 +1,3 @@
+[toolchain]
+channel = "stable"
+targets = ["x86_64-unknown-uefi", "thumbv8m.main-none-eabihf"]

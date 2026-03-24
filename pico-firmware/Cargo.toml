@@ -1,0 +1,7 @@
+[package]
+name = "pico-firmware"
+version = "0.1.0"
+edition = "2024"
+description = "Raspberry Pi Pico 2 firmware for the physical boot selector switch"
+
+[dependencies]

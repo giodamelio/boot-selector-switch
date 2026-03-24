@@ -1,0 +1,7 @@
+[package]
+name = "virtual-switch"
+version = "0.1.0"
+edition = "2024"
+description = "USB/IP virtual switch for testing the boot selector"
+
+[dependencies]
