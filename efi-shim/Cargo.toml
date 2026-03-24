@@ -1,7 +1,0 @@
-[package]
-name = "efi-shim"
-version = "0.1.0"
-edition = "2024"
-description = "EFI shim that reads the boot selector switch and sets LoaderEntryOneShot"
-
-[dependencies]

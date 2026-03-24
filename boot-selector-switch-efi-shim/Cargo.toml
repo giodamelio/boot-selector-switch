@@ -1,0 +1,13 @@
+[package]
+name = "boot-selector-switch-efi-shim"
+version = "0.1.0"
+edition = "2024"
+description = "EFI shim that reads the boot selector switch and sets LoaderEntryOneShot"
+
+[features]
+default = []
+qemu = ["uefi/qemu"]
+
+[dependencies]
+uefi = { version = "0.37", features = ["panic_handler"] }
+log = "0.4"
