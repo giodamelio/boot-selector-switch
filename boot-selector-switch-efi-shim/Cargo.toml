@@ -9,5 +9,5 @@ default = []
 qemu = ["uefi/qemu"]
 
 [dependencies]
-uefi = { version = "0.37", features = ["panic_handler"] }
+uefi = { version = "0.37", features = ["panic_handler", "alloc", "global_allocator"] }
 log = "0.4"

@@ -33,16 +33,31 @@
           programs.statix.enable = true;
         };
 
-        packages = {
+        packages = let
+          buildTestEntry = name: text:
+            config.rust-project.crane-lib.buildPackage {
+              inherit (config.rust-project) src;
+              pname = "test-entry-${name}";
+              cargoExtraArgs = "-p test-efi-stub --target x86_64-unknown-uefi --features test-efi-stub/qemu";
+              cargoArtifacts = null;
+              doCheck = false;
+              strictDeps = true;
+              TEST_ENTRY_TEXT = text;
+              installPhaseCommand = ''
+                mkdir -p $out
+                cp target/x86_64-unknown-uefi/release/test-efi-stub.efi $out/${name}.efi
+              '';
+            };
+          testEntryNixos = buildTestEntry "nixos" "NixOS (Current)";
+          testEntryWindows = buildTestEntry "windows" "Windows";
+          testEntryFedora = buildTestEntry "fedora" "Fedora";
+        in {
           efi-shim = config.rust-project.crane-lib.buildPackage {
             inherit (config.rust-project) src;
             pname = "boot-selector-switch-efi-shim";
-            # Build only the efi-shim crate, targeting UEFI instead of the host platform.
             cargoExtraArgs = "-p boot-selector-switch-efi-shim --target x86_64-unknown-uefi --features boot-selector-switch-efi-shim/qemu";
-            # Skip crane's buildDepsOnly phase. Crane generates a dummy main.rs to
-            # pre-compile dependencies, but the UEFI linker expects an `efi_main`
-            # entry point (provided by the #[entry] macro), so the dummy source
-            # fails to link.
+            # Skip crane's buildDepsOnly phase — the UEFI linker expects an `efi_main`
+            # entry point (provided by the #[entry] macro), so the dummy source fails to link.
             cargoArtifacts = null;
             # No test runner exists for x86_64-unknown-uefi.
             doCheck = false;
@@ -55,44 +70,69 @@
             '';
           };
 
-          esp-image = pkgs.stdenv.mkDerivation {
-            pname = "esp-image";
-            version = "0.1.0";
-            nativeBuildInputs = with pkgs; [dosfstools mtools];
-            buildCommand = ''
-              # Build a 64MB FAT32 ESP image
-              dd if=/dev/zero of=esp.img bs=1M count=64
-              mkfs.fat -F 32 esp.img
-              mmd -i esp.img ::/EFI
-              mmd -i esp.img ::/EFI/BOOT
-              mcopy -i esp.img ${self'.packages.efi-shim}/boot-selector-switch-efi-shim.efi ::/EFI/BOOT/BOOTX64.EFI
-              mkdir -p $out
-              cp esp.img $out/
+          test-esp = let
+            loaderConf = pkgs.writeText "loader.conf" ''
+              timeout 5
+              default nixos.conf
             '';
-          };
+            entryConf = name:
+              pkgs.writeText "${name}.conf" ''
+                title ${name}
+                efi /EFI/test/${name}.efi
+              '';
+          in
+            pkgs.runCommand "test-esp" {
+              nativeBuildInputs = [pkgs.dosfstools pkgs.mtools];
+            } ''
+              img="$out/esp.img"
+              mkdir -p $out
+              mkfs.fat -C "$img" 65536
+
+              mmd -i "$img" ::/EFI
+              mmd -i "$img" ::/EFI/BOOT
+              mmd -i "$img" ::/EFI/systemd
+              mmd -i "$img" ::/EFI/test
+              mmd -i "$img" ::/loader
+              mmd -i "$img" ::/loader/entries
+
+              mcopy -i "$img" ${self'.packages.efi-shim}/boot-selector-switch-efi-shim.efi ::/EFI/BOOT/BOOTX64.EFI
+              mcopy -i "$img" ${pkgs.systemd}/lib/systemd/boot/efi/systemd-bootx64.efi ::/EFI/systemd/systemd-bootx64.efi
+
+              mcopy -i "$img" ${testEntryNixos}/nixos.efi ::/EFI/test/nixos.efi
+              mcopy -i "$img" ${testEntryWindows}/windows.efi ::/EFI/test/windows.efi
+              mcopy -i "$img" ${testEntryFedora}/fedora.efi ::/EFI/test/fedora.efi
+
+              mcopy -i "$img" ${loaderConf} ::/loader/loader.conf
+              mcopy -i "$img" ${entryConf "nixos"} ::/loader/entries/nixos.conf
+              mcopy -i "$img" ${entryConf "windows"} ::/loader/entries/windows.conf
+              mcopy -i "$img" ${entryConf "fedora"} ::/loader/entries/fedora.conf
+            '';
 
           test-vm = pkgs.writeShellApplication {
             name = "test-vm";
             runtimeInputs = [pkgs.qemu];
             text = ''
-              # Copy OVMF_VARS.fd to a writable location (UEFI needs to write variables)
               TMPDIR=$(mktemp -d)
               cleanup() { rm -rf "$TMPDIR"; }
               trap cleanup EXIT
+
+              # Copy OVMF_VARS.fd to a writable location (UEFI needs to write variables)
               OVMF_VARS="$TMPDIR/OVMF_VARS.fd"
               cp ${pkgs.OVMF.fd}/FV/OVMF_VARS.fd "$OVMF_VARS"
               chmod u+w "$OVMF_VARS"
 
+              # Copy ESP image to writable location
               ESP="$TMPDIR/esp.img"
-              cp ${self'.packages.esp-image}/esp.img "$ESP"
+              cp ${self'.packages.test-esp}/esp.img "$ESP"
               chmod u+w "$ESP"
 
-              # Launch QEMU with OVMF firmware and pre-built ESP image
+              # Launch QEMU with OVMF firmware and ESP image
               qemu-system-x86_64 \
                 -drive if=pflash,format=raw,readonly=on,file=${pkgs.OVMF.fd}/FV/OVMF_CODE.fd \
                 -drive if=pflash,format=raw,file="$OVMF_VARS" \
                 -drive format=raw,file="$ESP" \
                 -nographic \
+                -m 512 \
                 -net none
             '';
           };

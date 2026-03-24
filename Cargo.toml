@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["virtual-switch", "boot-selector-switch-efi-shim", "pico-firmware"]
+members = ["virtual-switch", "boot-selector-switch-efi-shim", "test-efi-stub", "pico-firmware"]
 
 [workspace.package]
 version = "0.1.0"

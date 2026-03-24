@@ -1,0 +1,13 @@
+[package]
+name = "test-efi-stub"
+version = "0.1.0"
+edition = "2024"
+description = "Test EFI binary that displays a boot entry name and shuts down"
+
+[features]
+default = []
+qemu = ["uefi/qemu"]
+
+[dependencies]
+uefi = { version = "0.37", features = ["panic_handler"] }
+log = "0.4"
