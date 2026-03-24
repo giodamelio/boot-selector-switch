@@ -15,6 +15,9 @@ use uefi::proto::BootPolicy;
 use uefi::proto::device_path::DevicePath;
 use uefi::proto::device_path::build::{self, DevicePathBuilder};
 use uefi::proto::loaded_image::LoadedImage;
+use uefi::runtime;
+use uefi::runtime::VariableAttributes;
+use uefi::system;
 
 const SYSTEMD_BOOT_PATH: &uefi::CStr16 = uefi::cstr16!("\\EFI\\systemd\\systemd-bootx64.efi");
 
@@ -23,6 +26,38 @@ fn main() -> Status {
     uefi::helpers::init().unwrap();
     logger::init();
     info!("boot-selector-switch: starting chain-load of systemd-boot");
+
+    // Pick a random boot entry using the UEFI real-time clock
+    let time = runtime::get_time().expect("Failed to get UEFI time");
+    let seed = time.second() as u64 + time.minute() as u64 * 60 + time.nanosecond() as u64;
+    let entries: [&uefi::CStr16; 3] = [
+        uefi::cstr16!("nixos.conf"),
+        uefi::cstr16!("windows.conf"),
+        uefi::cstr16!("fedora.conf"),
+    ];
+    let index = (seed % 3) as usize;
+    let chosen = entries[index];
+
+    // systemd-boot's shared vendor GUID
+    let vendor = runtime::VariableVendor(uefi::guid!("4a67b082-0a4c-41cf-b6c7-440b29bb8c4f"));
+
+    let attrs = VariableAttributes::NON_VOLATILE
+        | VariableAttributes::BOOTSERVICE_ACCESS
+        | VariableAttributes::RUNTIME_ACCESS;
+
+    // Beep to indicate the shim is running
+    system::with_stdout(|stdout| {
+        let _ = stdout.output_string(uefi::cstr16!("\x07"));
+    });
+
+    info!("Setting LoaderEntryOneShot to entry index {}", index);
+    runtime::set_variable(
+        uefi::cstr16!("LoaderEntryOneShot"),
+        &vendor,
+        attrs,
+        chosen.as_bytes(),
+    )
+    .expect("Failed to set LoaderEntryOneShot");
 
     // Get the device handle for the ESP from our loaded image.
     // We must drop the ScopedProtocol before calling load_image to avoid
