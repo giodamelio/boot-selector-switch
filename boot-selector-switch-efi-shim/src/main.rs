@@ -160,8 +160,8 @@ fn main() -> Status {
     // Step 2: Find switch position
     let mut position = find_switch_position();
 
-    // Step 3: If position == 8, toggle debug mode and re-read
-    if position == Some(8) {
+    // Step 3: If position == 12, toggle debug mode and re-read
+    if position == Some(12) {
         debug_mode = !debug_mode;
         write_debug_mode(debug_mode);
         if debug_mode {

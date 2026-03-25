@@ -18,19 +18,19 @@ bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => embassy_rp::usb::InterruptHandler<USB>;
 });
 
-/// GPIO pins for switch positions 1-8 (active-low with pull-ups).
-/// Using GPIO2-GPIO9 — adjust these to match your wiring.
-const SWITCH_PINS: [u8; 8] = [2, 3, 4, 5, 6, 7, 8, 9];
+/// GPIO pins for switch positions 1-12 (active-low with pull-ups).
+/// Using GPIO2-GPIO13 — adjust these to match your wiring.
+const SWITCH_PINS: [u8; 12] = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
 
 /// Same HID report descriptor as virtual-switch:
-/// Vendor-defined (0xFF00), single 8-bit input value (1-8).
+/// Vendor-defined (0xFF00), single 8-bit input value (1-12).
 const REPORT_DESCRIPTOR: &[u8] = &[
     0x06, 0x00, 0xFF, // Usage Page (Vendor Defined 0xFF00)
     0x09, 0x01, // Usage (Vendor Usage 1)
     0xA1, 0x01, // Collection (Application)
     0x09, 0x01, //   Usage (Vendor Usage 1)
     0x15, 0x01, //   Logical Minimum (1)
-    0x25, 0x08, //   Logical Maximum (8)
+    0x25, 0x0C, //   Logical Maximum (12)
     0x75, 0x08, //   Report Size (8)
     0x95, 0x01, //   Report Count (1)
     0x81, 0x02, //   Input (Data, Variable, Absolute)
@@ -43,7 +43,7 @@ async fn main(_spawner: Spawner) {
 
     // Set up GPIO inputs with pull-ups for switch positions.
     // Each switch position connects one pin to ground (active-low).
-    let pins: [Input<'_>; 8] = [
+    let pins: [Input<'_>; 12] = [
         Input::new(p.PIN_2, Pull::Up),
         Input::new(p.PIN_3, Pull::Up),
         Input::new(p.PIN_4, Pull::Up),
@@ -52,6 +52,10 @@ async fn main(_spawner: Spawner) {
         Input::new(p.PIN_7, Pull::Up),
         Input::new(p.PIN_8, Pull::Up),
         Input::new(p.PIN_9, Pull::Up),
+        Input::new(p.PIN_10, Pull::Up),
+        Input::new(p.PIN_11, Pull::Up),
+        Input::new(p.PIN_12, Pull::Up),
+        Input::new(p.PIN_13, Pull::Up),
     ];
 
     // Create USB driver
@@ -104,7 +108,7 @@ async fn main(_spawner: Spawner) {
 }
 
 /// Read switch position from GPIO pins and send HID reports.
-async fn report_loop<'a>(mut hid_writer: HidWriter<'a, Driver<'a, USB>, 1>, pins: [Input<'a>; 8]) {
+async fn report_loop<'a>(mut hid_writer: HidWriter<'a, Driver<'a, USB>, 1>, pins: [Input<'a>; 12]) {
     let mut last_position: u8 = 0;
 
     info!("Boot selector switch ready, scanning GPIO pins...");

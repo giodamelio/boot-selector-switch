@@ -61,7 +61,7 @@ fn run_tui(position: Arc<AtomicU8>) {
         let current = position.load(Ordering::Relaxed);
 
         let input = inquire::Text::new(&format!(
-            "Position [1-8, q to quit] (current: {}):",
+            "Position [1-12, q to quit] (current: {}):",
             current
         ))
         .prompt();
@@ -72,11 +72,11 @@ fn run_tui(position: Arc<AtomicU8>) {
                 return;
             }
             Ok(s) => match s.trim().parse::<u8>() {
-                Ok(n) if (1..=8).contains(&n) => {
+                Ok(n) if (1..=12).contains(&n) => {
                     position.store(n, Ordering::Relaxed);
                     log::info!("Position changed to {}", n);
                 }
-                _ => println!("Invalid input. Enter 1-8 or q."),
+                _ => println!("Invalid input. Enter 1-12 or q."),
             },
             Err(
                 inquire::InquireError::OperationCanceled
