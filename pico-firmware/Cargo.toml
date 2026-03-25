@@ -5,3 +5,14 @@ edition = "2024"
 description = "Raspberry Pi Pico 2 firmware for the physical boot selector switch"
 
 [dependencies]
+embassy-executor = { version = "0.10", features = ["platform-cortex-m", "executor-thread"] }
+embassy-rp = { version = "0.10", features = ["rp235xa", "time-driver", "critical-section-impl"] }
+embassy-usb = "0.6"
+embassy-futures = "0.1"
+embassy-time = "0.5"
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+defmt = "0.3"
+defmt-rtt = "0.4"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+static_cell = "2"

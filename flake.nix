@@ -154,6 +154,27 @@
             '';
           };
 
+          pico-firmware = config.rust-project.crane-lib.buildPackage {
+            inherit (config.rust-project) src;
+            pname = "pico-firmware";
+            cargoExtraArgs = "-p pico-firmware --target thumbv8m.main-none-eabihf";
+            cargoArtifacts = null;
+            doCheck = false;
+            strictDeps = true;
+            installPhaseCommand = ''
+              mkdir -p $out
+              cp target/thumbv8m.main-none-eabihf/release/pico-firmware $out/pico-firmware.elf
+            '';
+          };
+
+          flash-pico-firmware = pkgs.writeShellApplication {
+            name = "flash-pico-firmware";
+            runtimeInputs = [pkgs.probe-rs-tools];
+            text = ''
+              probe-rs run --chip RP2350 ${self'.packages.pico-firmware}/pico-firmware.elf
+            '';
+          };
+
           virtual-switch-run = pkgs.writeShellApplication {
             name = "virtual-switch-run";
             runtimeInputs = with pkgs; [
@@ -209,6 +230,9 @@
               hidrd
               hidapitester
               tinyxxd
+              probe-rs-tools
+              elf2uf2-rs
+              picotool
             ]);
         };
       };
