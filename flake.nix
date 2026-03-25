@@ -112,28 +112,45 @@
             name = "test-vm";
             runtimeInputs = [pkgs.qemu];
             text = ''
+              # Persistent state directory for OVMF_VARS (EFI variables survive across runs)
+              STATE_DIR=".vm-state"
+              mkdir -p "$STATE_DIR"
+
+              OVMF_VARS="$STATE_DIR/OVMF_VARS.fd"
+              if [ ! -f "$OVMF_VARS" ]; then
+                cp ${pkgs.OVMF.fd}/FV/OVMF_VARS.fd "$OVMF_VARS"
+                chmod u+w "$OVMF_VARS"
+              fi
+
+              # Copy ESP image to a temp location (rebuilt by Nix each time)
               TMPDIR=$(mktemp -d)
               cleanup() { rm -rf "$TMPDIR"; }
               trap cleanup EXIT
 
-              # Copy OVMF_VARS.fd to a writable location (UEFI needs to write variables)
-              OVMF_VARS="$TMPDIR/OVMF_VARS.fd"
-              cp ${pkgs.OVMF.fd}/FV/OVMF_VARS.fd "$OVMF_VARS"
-              chmod u+w "$OVMF_VARS"
-
-              # Copy ESP image to writable location
               ESP="$TMPDIR/esp.img"
               cp ${self'.packages.test-esp}/esp.img "$ESP"
               chmod u+w "$ESP"
 
               # Launch QEMU with OVMF firmware and ESP image
+              # Extra arguments can be passed through (e.g. USB device passthrough)
               qemu-system-x86_64 \
                 -drive if=pflash,format=raw,readonly=on,file=${pkgs.OVMF.fd}/FV/OVMF_CODE.fd \
                 -drive if=pflash,format=raw,file="$OVMF_VARS" \
                 -drive format=raw,file="$ESP" \
+                -device qemu-xhci,id=xhci \
                 -nographic \
                 -m 512 \
-                -net none
+                -net none \
+                "$@"
+            '';
+          };
+
+          test-vm-usb = pkgs.writeShellApplication {
+            name = "test-vm-usb";
+            runtimeInputs = [];
+            text = ''
+              sudo ${self'.packages.test-vm}/bin/test-vm \
+                -device usb-host,bus=xhci.0,vendorid=0x6666,productid=0xB007
             '';
           };
 

@@ -226,9 +226,9 @@ let vendor_guid = guid!("4a67b082-0a4c-41cf-b6c7-440b29bb8c4f");
 
 // Map switch position to entry ID (positions 1-8, 0 = unmapped/skip)
 let entry_id: Option<&CStr16> = match switch_position {
-    1 => Some(cstr16!("nixos-current")),
-    2 => Some(cstr16!("windows")),
-    3 => Some(cstr16!("fedora")),
+    1 => Some(cstr16!("nixos.conf")),
+    2 => Some(cstr16!("windows.conf")),
+    3 => Some(cstr16!("fedora.conf")),
     // positions 4-8 unmapped for now
     _ => None,  // Unknown/unmapped position, skip variable setting
 };
@@ -249,7 +249,7 @@ runtime::set_variable(
 - **Name:** `LoaderEntryOneShot` (UTF-16LE)
 - **Vendor GUID:** `4a67b082-0a4c-41cf-b6c7-440b29bb8c4f` (systemd-boot's shared GUID)
 - **Attributes:** NON_VOLATILE | BOOTSERVICE_ACCESS | RUNTIME_ACCESS
-- **Data:** The entry identifier as UTF-16LE bytes. Derived from the `.conf` filename on the ESP minus the extension (e.g., `nixos-current.conf` → `nixos-current`).
+- **Data:** The full entry filename including the `.conf` suffix as UTF-16LE bytes (e.g., `nixos.conf`, `windows.conf`).
 
 ### Chain-Loading systemd-boot
 
