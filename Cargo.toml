@@ -4,3 +4,6 @@ members = ["virtual-switch", "boot-selector-switch-efi-shim", "test-efi-stub", "
 
 [workspace.package]
 version = "0.1.0"
+
+[profile.release]
+debug = 2

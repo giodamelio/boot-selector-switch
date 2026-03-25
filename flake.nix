@@ -155,9 +155,15 @@
           };
 
           pico-firmware = config.rust-project.crane-lib.buildPackage {
-            inherit (config.rust-project) src;
+            src = pkgs.lib.cleanSourceWith {
+              src = ./.;
+              filter = path: type:
+                (pkgs.lib.hasSuffix ".x" path)
+                || (config.rust-project.crane-lib.filterCargoSources path type);
+            };
             pname = "pico-firmware";
             cargoExtraArgs = "-p pico-firmware --target thumbv8m.main-none-eabihf";
+            DEFMT_LOG = "trace";
             cargoArtifacts = null;
             doCheck = false;
             strictDeps = true;
@@ -171,7 +177,7 @@
             name = "flash-pico-firmware";
             runtimeInputs = [pkgs.probe-rs-tools];
             text = ''
-              probe-rs run --chip RP2350 ${self'.packages.pico-firmware}/pico-firmware.elf
+              probe-rs run --chip RP235x ${self'.packages.pico-firmware}/pico-firmware.elf
             '';
           };
 
