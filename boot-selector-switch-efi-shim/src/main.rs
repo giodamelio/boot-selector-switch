@@ -136,15 +136,17 @@ fn find_switch_position() -> Option<u8> {
 /// Wait for the user to press Enter.
 fn wait_for_enter() {
     info!("Press Enter to chain-load systemd-boot...");
-    system::with_stdin(|stdin| loop {
-        if let Ok(Some(key)) = stdin.read_key() {
-            if let uefi::proto::console::text::Key::Printable(c) = key {
-                if c == uefi::Char16::try_from('\r').unwrap() {
-                    break;
+    system::with_stdin(|stdin| {
+        loop {
+            if let Ok(Some(key)) = stdin.read_key() {
+                if let uefi::proto::console::text::Key::Printable(c) = key {
+                    if c == uefi::Char16::try_from('\r').unwrap() {
+                        break;
+                    }
                 }
             }
+            boot::stall(Duration::from_millis(50));
         }
-        boot::stall(Duration::from_millis(50));
     });
 }
 
