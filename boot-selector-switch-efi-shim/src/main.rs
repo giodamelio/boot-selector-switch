@@ -292,7 +292,17 @@ fn main() -> Status {
     )
     .expect("Failed to load systemd-boot image");
 
-    // Step 7: Start systemd-boot
+    // Step 7: Beep the position number so the user knows which entry was selected
+    if let Some(pos) = position {
+        system::with_stdout(|stdout| {
+            for _ in 0..pos {
+                let _ = stdout.output_string(uefi::cstr16!("\x07"));
+                boot::stall(Duration::from_millis(100));
+            }
+        });
+    }
+
+    // Step 8: Start systemd-boot
     info!("Chain-loading systemd-boot");
     boot::start_image(loaded_handle).expect("Failed to start systemd-boot");
 
