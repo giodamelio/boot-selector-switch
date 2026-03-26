@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Does
 
-A physical rotary switch (12-position, connected to a Raspberry Pi Pico 2) selects which OS to boot. The Pico presents as a USB HID device (VID `0x6666`, PID `0xB007`). A custom UEFI application reads the switch position, sets systemd-boot's `LoaderEntryOneShot` EFI variable, then chain-loads systemd-boot.
+A physical rotary switch (6-position, connected to a Raspberry Pi Pico 2) selects which OS to boot. The Pico presents as a USB HID device (VID `0x6666`, PID `0xB007`). A custom UEFI application reads the switch position, sets systemd-boot's `LoaderEntryOneShot` EFI variable, then chain-loads systemd-boot.
 
 ## Build Commands
 
@@ -33,15 +33,15 @@ Cargo commands work for the host-target crates: `cargo build -p virtual-switch`,
 ```
 UEFI Firmware → efi-shim (reads USB HID) → sets LoaderEntryOneShot → chain-loads systemd-boot
                     ↑
-            USB HID device (1-byte position report, values 1-12)
+            USB HID device (1-byte position report, values 1-6)
                     ↑
         pico-firmware (real hardware) OR virtual-switch (USB/IP emulator)
 ```
 
 **Four workspace crates:**
 
-- **boot-selector-switch-efi-shim** — `#![no_std]` UEFI app. Discovers the switch by VID/PID, reads position from interrupt endpoint `0x81`, maps positions 1-3 to boot entries, position 12 toggles debug mode (persisted as EFI variable). Chain-loads systemd-boot.
-- **pico-firmware** — `#![no_std]` Embassy-rs firmware for RP2350. 12 GPIO inputs (pins 2-13) with pull-ups scan the rotary switch. Reports position over USB HID. Uses defmt/RTT for debug logging.
+- **boot-selector-switch-efi-shim** — `#![no_std]` UEFI app. Discovers the switch by VID/PID, reads position from interrupt endpoint `0x81`, maps positions 1-3 to boot entries, position 6 toggles debug mode (persisted as EFI variable). Chain-loads systemd-boot.
+- **pico-firmware** — `#![no_std]` Embassy-rs firmware for RP2350. 6 GPIO inputs (pins 2-7) with pull-ups scan the rotary switch. Reports position over USB HID. Uses defmt/RTT for debug logging.
 - **virtual-switch** — Emulates the same USB HID device over USB/IP for development without hardware. Runs a TUI (inquire) to set position interactively.
 - **test-efi-stub** — Minimal UEFI binaries that display a boot entry name and shut down. Built 3 times with different `TEST_ENTRY_TEXT` env var to produce nixos.efi, windows.efi, fedora.efi for the test ESP.
 
@@ -49,7 +49,7 @@ UEFI Firmware → efi-shim (reads USB HID) → sets LoaderEntryOneShot → chain
 
 - **Nix-only build workflow** — no separate shell scripts for building/flashing.
 - **Nix package names must match crate directory names** exactly.
-- **HID descriptor** is duplicated in `virtual-switch/src/descriptors.rs` and `pico-firmware/src/main.rs` — keep them in sync. Vendor page `0xFF00`, single 8-bit input, range 1-12.
+- **HID descriptor** is duplicated in `virtual-switch/src/descriptors.rs` and `pico-firmware/src/hid_descriptor.rs` — keep them in sync. Vendor page `0xFF00`, single 8-bit input, range 1-6.
 - **Crane builds** all set `cargoArtifacts = null` because UEFI/ARM linkers need entry points that dummy sources can't provide.
 - **`qemu` feature flag** on efi-shim and test-efi-stub enables QEMU-specific behavior.
 - **VM state** persists EFI variables in `.vm-state/OVMF_VARS.fd`.

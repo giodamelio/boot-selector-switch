@@ -102,8 +102,13 @@ fn print_usb_devices() {
     }
 }
 
+/// Number of consecutive identical reads required to trust the position.
+/// Drains stale reports that may be buffered from before a reboot
+/// (the Pico may not lose power across warm reboots).
+const SWITCH_STABLE_READS: usize = 3;
+
 /// Find the boot selector switch and read its position.
-/// Only logs minimal info; verbose USB listing is done separately by print_usb_devices().
+/// Reads multiple reports to ensure we have a fresh, stable value.
 fn find_switch_position() -> Option<u8> {
     let handles = boot::locate_handle_buffer(SearchType::ByProtocol(&UsbIo::GUID)).ok()?;
 
@@ -120,11 +125,33 @@ fn find_switch_position() -> Option<u8> {
         if desc.id_vendor == SWITCH_VID && desc.id_product == SWITCH_PID {
             info!("Found boot selector switch");
             let mut buf = [0u8; 1];
-            match usb_io.sync_interrupt_receive(SWITCH_ENDPOINT, &mut buf, SWITCH_TIMEOUT_US) {
-                Ok(_) => return Some(buf[0]),
-                Err(e) => {
-                    error!("Failed to read HID report: {:?}", e);
-                    return None;
+            let mut last_value: Option<u8> = None;
+            let mut stable_count: usize = 0;
+
+            // Read until we get SWITCH_STABLE_READS consecutive identical values
+            loop {
+                match usb_io.sync_interrupt_receive(SWITCH_ENDPOINT, &mut buf, SWITCH_TIMEOUT_US) {
+                    Ok(_) => {
+                        let value = buf[0];
+                        if last_value == Some(value) {
+                            stable_count += 1;
+                            if stable_count >= SWITCH_STABLE_READS {
+                                info!(
+                                    "Switch position: {} (stable after {} reads)",
+                                    value, stable_count
+                                );
+                                return Some(value);
+                            }
+                        } else {
+                            info!("Switch read: {} (waiting for stable)", value);
+                            last_value = Some(value);
+                            stable_count = 1;
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to read HID report: {:?}", e);
+                        return None;
+                    }
                 }
             }
         }
@@ -162,8 +189,8 @@ fn main() -> Status {
     // Step 2: Find switch position
     let mut position = find_switch_position();
 
-    // Step 3: If position == 12, toggle debug mode and re-read
-    if position == Some(12) {
+    // Step 3: If position == 6, toggle debug mode and re-read
+    if position == Some(6) {
         debug_mode = !debug_mode;
         write_debug_mode(debug_mode);
         if debug_mode {
@@ -179,12 +206,15 @@ fn main() -> Status {
         position = find_switch_position();
     }
 
-    // Step 4: If debug mode, print verbose USB info and beep
+    // Step 4: If debug mode, print verbose USB info, beep, and wait for Enter.
+    // Re-read position after the wait so the user can change the switch.
     if debug_mode {
         print_usb_devices();
         system::with_stdout(|stdout| {
             let _ = stdout.output_string(uefi::cstr16!("\x07"));
         });
+        wait_for_enter();
+        position = find_switch_position();
     }
 
     // Step 5: Map position to entry, set LoaderEntryOneShot
@@ -262,12 +292,7 @@ fn main() -> Status {
     )
     .expect("Failed to load systemd-boot image");
 
-    // Step 7: In debug mode wait for Enter, otherwise go straight through
-    if debug_mode {
-        wait_for_enter();
-    }
-
-    // Step 8: Start systemd-boot
+    // Step 7: Start systemd-boot
     info!("Chain-loading systemd-boot");
     boot::start_image(loaded_handle).expect("Failed to start systemd-boot");
 

@@ -1,12 +1,12 @@
 /// Vendor-defined HID report descriptor.
-/// Defines a single 8-bit input value (1-12) on usage page 0xFF00.
+/// Defines a single 8-bit input value (1-6) on usage page 0xFF00.
 pub const REPORT_DESCRIPTOR: &[u8] = &[
     0x06, 0x00, 0xFF, // Usage Page (Vendor Defined 0xFF00)
     0x09, 0x01, // Usage (Vendor Usage 1)
     0xA1, 0x01, // Collection (Application)
     0x09, 0x01, //   Usage (Vendor Usage 1)
     0x15, 0x01, //   Logical Minimum (1)
-    0x25, 0x0C, //   Logical Maximum (12)
+    0x25, 0x06, //   Logical Maximum (6)
     0x75, 0x08, //   Report Size (8)
     0x95, 0x01, //   Report Count (1)
     0x81, 0x02, //   Input (Data, Variable, Absolute)
