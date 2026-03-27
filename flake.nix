@@ -18,11 +18,19 @@
         inputs.treefmt-nix.flakeModule
       ];
 
-      flake = {self, ...}: {
+      # Eagerly bind the efi-shim packages outside the NixOS module function so
+      # that `self` is resolved as a flake-parts closure variable, not as a
+      # NixOS module argument. Referencing `self` directly inside the module
+      # function caused `attribute 'self' missing` errors in some consumers
+      # (Blueprint/Lix) where the module resolver tried to look it up in
+      # `_module.args` instead of recognizing the closure.
+      flake = {self, ...}: let
+        efiShimPackages = builtins.mapAttrs (_: ps: ps.efi-shim) self.packages;
+      in {
         nixosModules.default = self.nixosModules.boot-selector-switch;
         nixosModules.boot-selector-switch = {pkgs, lib, ...}: {
           imports = [./nixos-module];
-          boot.loader.boot-selector-switch.package = lib.mkDefault self.packages.${pkgs.system}.efi-shim;
+          boot.loader.boot-selector-switch.package = lib.mkDefault efiShimPackages.${pkgs.system};
         };
       };
 
