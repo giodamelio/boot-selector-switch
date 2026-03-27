@@ -18,9 +18,12 @@
         inputs.treefmt-nix.flakeModule
       ];
 
-      flake = {
-        nixosModules.default = ./nixos-module;
-        nixosModules.boot-selector-switch = ./nixos-module;
+      flake = {self, ...}: {
+        nixosModules.default = self.nixosModules.boot-selector-switch;
+        nixosModules.boot-selector-switch = {pkgs, lib, ...}: {
+          imports = [./nixos-module];
+          boot.loader.boot-selector-switch.package = lib.mkDefault self.packages.${pkgs.system}.efi-shim;
+        };
       };
 
       perSystem = {
