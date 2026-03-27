@@ -1,4 +1,5 @@
 use core::fmt::Write;
+
 use log::{Level, Log, Metadata, Record};
 use uefi::proto::console::text::Color;
 use uefi::system;
@@ -6,8 +7,16 @@ use uefi::system;
 static LOGGER: Logger = Logger;
 
 pub fn init() {
-    log::set_logger(&LOGGER).unwrap();
+    log::set_logger(&LOGGER).expect("failed to set logger");
     log::set_max_level(log::LevelFilter::Info);
+}
+
+pub fn set_debug(enabled: bool) {
+    if enabled {
+        log::set_max_level(log::LevelFilter::Debug);
+    } else {
+        log::set_max_level(log::LevelFilter::Info);
+    }
 }
 
 struct Logger;

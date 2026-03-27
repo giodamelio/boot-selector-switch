@@ -21,6 +21,13 @@ in {
   boot.loader.boot-selector-switch = {
     enable = true;
     package = packages.efi-shim-qemu;
+    positionMap = {
+      # "1" = "nixos-latest.conf";
+      "1" = "DEBUG";
+      "2" = "windows.conf";
+      "3" = "netbootxyz.conf";
+      "6" = "DEBUG";
+    };
   };
 
   # Windows test stub (prints "Windows" and shuts down)
