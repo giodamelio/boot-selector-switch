@@ -125,6 +125,22 @@ in {
         Written to config.conf on the ESP, read by the efi-shim at boot.
       '';
     };
+
+    installMode = lib.mkOption {
+      type = lib.types.enum ["uefi-first" "systemd-boot-entry"];
+      default = "uefi-first";
+      description = ''
+        How to install the efi-shim in the boot chain.
+
+        - "uefi-first": Register as the first UEFI boot entry via efibootmgr.
+          The shim runs before systemd-boot. This is the production mode.
+
+        - "systemd-boot-entry": Add as a systemd-boot menu entry instead.
+          Flow: systemd-boot → shim → sets LoaderEntryOneShot → chainloads
+          systemd-boot again → boots selected OS. Safe for debugging since a
+          hang just requires a power cycle to get back to systemd-boot's menu.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -143,9 +159,18 @@ in {
       "EFI/boot-selector-switch/config.conf" = configFile;
     };
 
-    boot.loader.systemd-boot.extraInstallCommands = ''
+    # In uefi-first mode, register as the first UEFI boot entry.
+    # In systemd-boot-entry mode, add as a systemd-boot menu entry instead.
+    boot.loader.systemd-boot.extraInstallCommands = lib.mkIf (cfg.installMode == "uefi-first") ''
       ${installScript}/bin/boot-selector-switch-install
     '';
+
+    boot.loader.systemd-boot.extraEntries = lib.mkIf (cfg.installMode == "systemd-boot-entry") {
+      "boot-selector-switch.conf" = ''
+        title Boot Selector Switch
+        efi /EFI/boot-selector-switch/boot-selector-switch.efi
+      '';
+    };
 
     # Add the debug toggle helper to the system
     environment.systemPackages = [debugScript];
