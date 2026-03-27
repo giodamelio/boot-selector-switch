@@ -18,12 +18,58 @@
         inputs.treefmt-nix.flakeModule
       ];
 
+      flake = {
+        nixosModules.default = ./nixos-module;
+        nixosModules.boot-selector-switch = ./nixos-module;
+      };
+
       perSystem = {
         self',
         config,
         pkgs,
         ...
-      }: {
+      }: let
+        buildEfiShim = extraArgs:
+          config.rust-project.crane-lib.buildPackage {
+            inherit (config.rust-project) src;
+            pname = "boot-selector-switch-efi-shim";
+            cargoExtraArgs = "-p boot-selector-switch-efi-shim --target x86_64-unknown-uefi" + extraArgs;
+            cargoArtifacts = null;
+            doCheck = false;
+            strictDeps = true;
+            installPhaseCommand = ''
+              mkdir -p $out
+              cp target/x86_64-unknown-uefi/release/boot-selector-switch-efi-shim.efi $out/
+            '';
+          };
+
+        buildTestEntry = name: text:
+          config.rust-project.crane-lib.buildPackage {
+            inherit (config.rust-project) src;
+            pname = "test-entry-${name}";
+            cargoExtraArgs = "-p test-efi-stub --target x86_64-unknown-uefi --features test-efi-stub/qemu";
+            cargoArtifacts = null;
+            doCheck = false;
+            strictDeps = true;
+            TEST_ENTRY_TEXT = text;
+            installPhaseCommand = ''
+              mkdir -p $out
+              cp target/x86_64-unknown-uefi/release/test-efi-stub.efi $out/${name}.efi
+            '';
+          };
+
+        testVmNixos = inputs.nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          specialArgs = {
+            boot-selector-switch-packages = self'.packages;
+          };
+          modules = [
+            "${inputs.nixpkgs}/nixos/modules/virtualisation/qemu-vm.nix"
+            ./nixos-module
+            ./nixos-module/test-vm.nix
+          ];
+        };
+      in {
         rust-project.crateNixFile = "crate.nix";
 
         treefmt = {
@@ -33,121 +79,31 @@
           programs.statix.enable = true;
         };
 
-        packages = let
-          buildTestEntry = name: text:
-            config.rust-project.crane-lib.buildPackage {
-              inherit (config.rust-project) src;
-              pname = "test-entry-${name}";
-              cargoExtraArgs = "-p test-efi-stub --target x86_64-unknown-uefi --features test-efi-stub/qemu";
-              cargoArtifacts = null;
-              doCheck = false;
-              strictDeps = true;
-              TEST_ENTRY_TEXT = text;
-              installPhaseCommand = ''
-                mkdir -p $out
-                cp target/x86_64-unknown-uefi/release/test-efi-stub.efi $out/${name}.efi
-              '';
-            };
-          testEntryNixos = buildTestEntry "nixos" "NixOS (Current)";
-          testEntryWindows = buildTestEntry "windows" "Windows";
-          testEntryFedora = buildTestEntry "fedora" "Fedora";
-        in {
-          efi-shim = config.rust-project.crane-lib.buildPackage {
-            inherit (config.rust-project) src;
-            pname = "boot-selector-switch-efi-shim";
-            cargoExtraArgs = "-p boot-selector-switch-efi-shim --target x86_64-unknown-uefi --features boot-selector-switch-efi-shim/qemu";
-            # Skip crane's buildDepsOnly phase — the UEFI linker expects an `efi_main`
-            # entry point (provided by the #[entry] macro), so the dummy source fails to link.
-            cargoArtifacts = null;
-            # No test runner exists for x86_64-unknown-uefi.
-            doCheck = false;
-            strictDeps = true;
-            # Crane's default install phase looks for binaries in target/<host>/release,
-            # but our output is under the UEFI target triple directory.
-            installPhaseCommand = ''
-              mkdir -p $out
-              cp target/x86_64-unknown-uefi/release/boot-selector-switch-efi-shim.efi $out/
-            '';
-          };
+        packages = {
+          # Production efi-shim (no qemu feature)
+          efi-shim = buildEfiShim "";
 
-          test-esp = let
-            loaderConf = pkgs.writeText "loader.conf" ''
-              timeout 5
-              default nixos.conf
-            '';
-            entryConf = name:
-              pkgs.writeText "${name}.conf" ''
-                title ${name}
-                efi /EFI/test/${name}.efi
-              '';
-          in
-            pkgs.runCommand "test-esp" {
-              nativeBuildInputs = [pkgs.dosfstools pkgs.mtools];
-            } ''
-              img="$out/esp.img"
-              mkdir -p $out
-              mkfs.fat -C "$img" 65536
+          # QEMU-compatible efi-shim (enables uefi/qemu)
+          efi-shim-qemu = buildEfiShim " --features boot-selector-switch-efi-shim/qemu";
 
-              mmd -i "$img" ::/EFI
-              mmd -i "$img" ::/EFI/BOOT
-              mmd -i "$img" ::/EFI/systemd
-              mmd -i "$img" ::/EFI/test
-              mmd -i "$img" ::/loader
-              mmd -i "$img" ::/loader/entries
+          # Test entry stub for Windows position
+          test-entry-windows = buildTestEntry "windows" "Windows";
 
-              mcopy -i "$img" ${self'.packages.efi-shim}/boot-selector-switch-efi-shim.efi ::/EFI/BOOT/BOOTX64.EFI
-              mcopy -i "$img" ${pkgs.systemd}/lib/systemd/boot/efi/systemd-bootx64.efi ::/EFI/systemd/systemd-bootx64.efi
-
-              mcopy -i "$img" ${testEntryNixos}/nixos.efi ::/EFI/test/nixos.efi
-              mcopy -i "$img" ${testEntryWindows}/windows.efi ::/EFI/test/windows.efi
-              mcopy -i "$img" ${testEntryFedora}/fedora.efi ::/EFI/test/fedora.efi
-
-              mcopy -i "$img" ${loaderConf} ::/loader/loader.conf
-              mcopy -i "$img" ${entryConf "nixos"} ::/loader/entries/nixos.conf
-              mcopy -i "$img" ${entryConf "windows"} ::/loader/entries/windows.conf
-              mcopy -i "$img" ${entryConf "fedora"} ::/loader/entries/fedora.conf
-            '';
-
+          # Test VM — always rebuilds the disk overlay to avoid stale image issues.
+          # EFI vars are preserved in .vm-state/ so debug mode persists across reboots.
           test-vm = pkgs.writeShellApplication {
             name = "test-vm";
-            runtimeInputs = [pkgs.qemu];
             text = ''
-              # Persistent state directory for OVMF_VARS (EFI variables survive across runs)
-              STATE_DIR=".vm-state"
-              mkdir -p "$STATE_DIR"
-
-              OVMF_VARS="$STATE_DIR/OVMF_VARS.fd"
-              if [ ! -f "$OVMF_VARS" ]; then
-                cp ${pkgs.OVMF.fd}/FV/OVMF_VARS.fd "$OVMF_VARS"
-                chmod u+w "$OVMF_VARS"
-              fi
-
-              # Copy ESP image to a temp location (rebuilt by Nix each time)
-              TMPDIR=$(mktemp -d)
-              cleanup() { rm -rf "$TMPDIR"; }
-              trap cleanup EXIT
-
-              ESP="$TMPDIR/esp.img"
-              cp ${self'.packages.test-esp}/esp.img "$ESP"
-              chmod u+w "$ESP"
-
-              # Launch QEMU with OVMF firmware and ESP image
-              # Extra arguments can be passed through (e.g. USB device passthrough)
-              qemu-system-x86_64 \
-                -drive if=pflash,format=raw,readonly=on,file=${pkgs.OVMF.fd}/FV/OVMF_CODE.fd \
-                -drive if=pflash,format=raw,file="$OVMF_VARS" \
-                -drive format=raw,file="$ESP" \
-                -device qemu-xhci,id=xhci \
-                -nographic \
-                -m 512 \
-                -net none \
-                "$@"
+              mkdir -p .vm-state
+              rm -f .vm-state/boot-selector-test.qcow2
+              export NIX_DISK_IMAGE=.vm-state/boot-selector-test.qcow2
+              export NIX_EFI_VARS=.vm-state/boot-selector-test-efi-vars.fd
+              exec ${testVmNixos.config.system.build.vm}/bin/run-boot-selector-test-vm "$@"
             '';
           };
 
           test-vm-usb = pkgs.writeShellApplication {
             name = "test-vm-usb";
-            runtimeInputs = [];
             text = ''
               sudo ${self'.packages.test-vm}/bin/test-vm \
                 -device usb-host,bus=xhci.0,vendorid=0x6666,productid=0xB007

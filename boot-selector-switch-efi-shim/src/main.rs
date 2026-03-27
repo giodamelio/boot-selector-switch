@@ -222,9 +222,9 @@ fn main() -> Status {
         Some(pos) => {
             info!("Switch position: {}", pos);
             match pos {
-                1 => Some(uefi::cstr16!("nixos.conf")),
+                1 => Some(uefi::cstr16!("nixos-latest.conf")),
                 2 => Some(uefi::cstr16!("windows.conf")),
-                3 => Some(uefi::cstr16!("fedora.conf")),
+                3 => Some(uefi::cstr16!("netbootxyz.conf")),
                 _ => {
                     info!("Position {} unmapped, skipping", pos);
                     None
