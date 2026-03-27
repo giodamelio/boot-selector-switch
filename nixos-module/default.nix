@@ -60,6 +60,50 @@
       echo "boot-selector-switch: registered in UEFI boot order on $ESP_DEV"
     '';
   };
+
+  # Helper script to toggle the BootSelectorDebug EFI variable from Linux.
+  # Uses efivar CLI to read/write the variable.
+  debugScript = pkgs.writers.writeNuBin "boot-selector-debug" ''
+    const EFIVAR_NAME = "614e5389-b94f-4994-9f26-558928eab8f1-BootSelectorDebug"
+
+    def write_var [value: int] {
+      let tmpfile = mktemp -t boot-selector-debug.XXXXXX
+      $value | into binary --compact | save --force --raw $tmpfile
+      ${pkgs.efivar}/bin/efivar --name $EFIVAR_NAME --write --attributes=non-volatile,boot-service-access,runtime-access --datafile $tmpfile
+      rm $tmpfile
+    }
+
+    def read_var []: nothing -> bool {
+      try {
+        let val = ${pkgs.efivar}/bin/efivar --name $EFIVAR_NAME --print-decimal | str trim
+        $val != "0"
+      } catch {
+        false
+      }
+    }
+
+    def "main on" [] {
+      write_var 1
+      print "Debug mode enabled. Will take effect on next boot."
+    }
+
+    def "main off" [] {
+      write_var 0
+      print "Debug mode disabled. Will take effect on next boot."
+    }
+
+    def "main status" [] {
+      if (read_var) {
+        print "Debug mode: on"
+      } else {
+        print "Debug mode: off"
+      }
+    }
+
+    def main [] {
+      main status
+    }
+  '';
 in {
   options.boot.loader.boot-selector-switch = {
     enable = lib.mkEnableOption "boot selector switch EFI shim";
@@ -75,11 +119,9 @@ in {
         "1" = "nixos-latest.conf";
         "2" = "windows.conf";
         "3" = "netbootxyz.conf";
-        "6" = "DEBUG";
       };
       description = ''
         Mapping from switch position (1-6) to systemd-boot entry filename.
-        The special value "DEBUG" marks the debug toggle position.
         Written to config.conf on the ESP, read by the efi-shim at boot.
       '';
     };
@@ -104,5 +146,8 @@ in {
     boot.loader.systemd-boot.extraInstallCommands = ''
       ${installScript}/bin/boot-selector-switch-install
     '';
+
+    # Add the debug toggle helper to the system
+    environment.systemPackages = [debugScript];
   };
 }

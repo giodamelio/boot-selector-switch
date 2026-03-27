@@ -11,7 +11,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::time::Duration;
 
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use uefi::Identify;
 use uefi::boot;
 use uefi::boot::{LoadImageSource, SearchType};
@@ -26,7 +26,7 @@ use uefi::runtime;
 use uefi::runtime::VariableAttributes;
 use uefi::system;
 
-use config::{PositionAction, load_config};
+use config::load_config;
 
 const SYSTEMD_BOOT_PATH: &uefi::CStr16 = cstr16!("\\EFI\\systemd\\systemd-bootx64.efi");
 
@@ -37,11 +37,11 @@ const SWITCH_TIMEOUT_US: usize = 2_000_000;
 
 const DEBUG_VAR_NAME: &uefi::CStr16 = cstr16!("BootSelectorDebug");
 
-/// Vendor GUID for boot-selector-switch project EFI variables (BootSelectorDebug).
+/// GUID for boot-selector-switch project EFI variables (BootSelectorDebug).
 const BSS_VENDOR: runtime::VariableVendor =
     runtime::VariableVendor(uefi::guid!("614e5389-b94f-4994-9f26-558928eab8f1"));
 
-/// Vendor GUID for systemd-boot loader variables (LoaderEntryOneShot).
+/// GUID for systemd-boot loader variables (LoaderEntryOneShot).
 const SYSTEMD_BOOT_VENDOR: runtime::VariableVendor =
     runtime::VariableVendor(uefi::guid!("4a67b082-0a4c-41cf-b6c7-440b29bb8c4f"));
 
@@ -53,39 +53,24 @@ fn run() -> Result<(), String> {
     let config = load_config()?;
 
     // Read debug mode from EFI variable and adjust log level
-    let mut debug_mode = read_debug_mode();
+    let debug_mode = read_debug_mode();
     logger::set_debug(debug_mode);
 
     // Find switch position
     let mut position = find_switch_position();
 
-    // Handle debug toggle and debug mode display
-    if let Some(pos) = position {
-        if matches!(config.get_action(pos), Some(PositionAction::Debug)) {
-            debug_mode = !debug_mode;
-            write_debug_mode(debug_mode)?;
-            logger::set_debug(debug_mode);
-            if debug_mode {
-                warn!("Debug mode ENABLED");
-            } else {
-                warn!("Debug mode DISABLED");
-            }
-
-            print_usb_devices();
-            info!("Set switch to desired position, then press Enter...");
-            wait_for_enter();
-            position = find_switch_position();
-        } else if debug_mode {
-            print_usb_devices();
-            wait_for_enter();
-            position = find_switch_position();
-        }
+    // In debug mode, show USB info and wait for enter before proceeding.
+    // Re-read position after so the user can change the switch.
+    if debug_mode {
+        print_usb_devices();
+        wait_for_enter();
+        position = find_switch_position();
     }
 
     // Map position to entry via config, set LoaderEntryOneShot
     if let Some(pos) = position {
         info!("Switch position: {}", pos);
-        if let Some(PositionAction::Entry(entry)) = config.get_action(pos) {
+        if let Some(entry) = config.get_entry(pos) {
             debug!("Mapped to entry: {}", entry);
 
             let attrs = VariableAttributes::NON_VOLATILE
@@ -164,10 +149,22 @@ fn run() -> Result<(), String> {
 }
 
 fn read_debug_mode() -> bool {
-    let mut buf = [0u8; 1];
+    let mut buf = [0u8; 8];
     match runtime::get_variable(DEBUG_VAR_NAME, &BSS_VENDOR, &mut buf) {
-        Ok((_, _)) => buf[0] != 0,
-        Err(_) => false,
+        Ok((data, _attrs)) => {
+            let len = data.len();
+            let enabled = buf[0] != 0;
+            debug!(
+                "Debug mode: {} ({} bytes)",
+                if enabled { "enabled" } else { "disabled" },
+                len
+            );
+            enabled
+        }
+        Err(_) => {
+            debug!("Debug mode: disabled (variable not set)");
+            false
+        }
     }
 }
 
@@ -306,6 +303,8 @@ fn main() -> Status {
     info!("boot-selector-switch: starting");
 
     if let Err(e) = run() {
+        // Enable debug mode so the next boot shows verbose output
+        let _ = write_debug_mode(true);
         error!("{}", e);
         wait_for_enter();
     }

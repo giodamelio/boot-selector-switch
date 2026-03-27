@@ -8,31 +8,24 @@ use uefi::{CString16, cstr16};
 
 const CONFIG_PATH: &uefi::CStr16 = cstr16!("\\EFI\\boot-selector-switch\\config.conf");
 
-/// What a position maps to.
-pub enum PositionAction {
-    /// Boot the given systemd-boot entry.
-    Entry(CString16),
-    /// Toggle debug mode.
-    Debug,
-}
-
 /// Parsed configuration from the config file.
+/// Maps switch positions (1-6) to systemd-boot entry filenames.
 pub struct Config {
-    /// actions[i] is the action for position (i+1).
+    /// entries[i] is the boot entry for position (i+1).
     /// None = unmapped position.
-    actions: [Option<PositionAction>; 6],
+    entries: [Option<CString16>; 6],
 }
 
 impl Config {
     pub fn empty() -> Self {
         Self {
-            actions: [const { None }; 6],
+            entries: [const { None }; 6],
         }
     }
 
-    pub fn get_action(&self, position: u8) -> Option<&PositionAction> {
+    pub fn get_entry(&self, position: u8) -> Option<&CString16> {
         if position >= 1 && position <= 6 {
-            self.actions[(position - 1) as usize].as_ref()
+            self.entries[(position - 1) as usize].as_ref()
         } else {
             None
         }
@@ -96,18 +89,13 @@ fn parse_config(data: &[u8]) -> Result<Config, String> {
             continue;
         }
 
-        if value == "DEBUG" {
-            debug!("Config: position {} = DEBUG", pos);
-            config.actions[(pos - 1) as usize] = Some(PositionAction::Debug);
-        } else {
-            match CString16::try_from(value) {
-                Ok(entry) => {
-                    debug!("Config: position {} = {}", pos, value);
-                    config.actions[(pos - 1) as usize] = Some(PositionAction::Entry(entry));
-                }
-                Err(_) => {
-                    warn!("Could not convert entry name to UCS-2: {}", value);
-                }
+        match CString16::try_from(value) {
+            Ok(entry) => {
+                debug!("Config: position {} = {}", pos, value);
+                config.entries[(pos - 1) as usize] = Some(entry);
+            }
+            Err(_) => {
+                warn!("Could not convert entry name to UCS-2: {}", value);
             }
         }
     }
