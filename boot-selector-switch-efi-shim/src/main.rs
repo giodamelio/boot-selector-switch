@@ -48,6 +48,9 @@ const SYSTEMD_BOOT_VENDOR: runtime::VariableVendor =
 /// Number of consecutive identical reads required to trust the position.
 const SWITCH_STABLE_READS: usize = 3;
 
+/// Maximum number of read attempts before giving up on debouncing.
+const SWITCH_MAX_READ_ATTEMPTS: usize = 50;
+
 /// Main boot logic. Returns an error string on failure.
 fn run() -> Result<(), String> {
     let config = load_config()?;
@@ -247,7 +250,7 @@ fn find_switch_position() -> Option<u8> {
             let mut last_value: Option<u8> = None;
             let mut stable_count: usize = 0;
 
-            loop {
+            for _attempt in 0..SWITCH_MAX_READ_ATTEMPTS {
                 match usb_io.sync_interrupt_receive(SWITCH_ENDPOINT, &mut buf, SWITCH_TIMEOUT_US) {
                     Ok(_) => {
                         let value = buf[0];
@@ -272,6 +275,11 @@ fn find_switch_position() -> Option<u8> {
                     }
                 }
             }
+            error!(
+                "Switch position not stable after {} attempts, last value: {:?}",
+                SWITCH_MAX_READ_ATTEMPTS, last_value
+            );
+            return None;
         }
     }
     debug!("Boot selector switch not found");
