@@ -197,6 +197,24 @@ fn write_debug_mode(enabled: bool) -> Result<(), String> {
         .map_err(|e| format!("Failed to set BootSelectorDebug variable: {:?}", e))
 }
 
+/// Open UsbIo non-exclusively so we don't disconnect other USB drivers (e.g. keyboard).
+///
+/// SAFETY: Uses GetProtocol for non-exclusive access. The returned ScopedProtocol
+/// must not outlive the handle.
+unsafe fn open_usb_io(handle: Handle) -> Option<boot::ScopedProtocol<UsbIo>> {
+    unsafe {
+        boot::open_protocol::<UsbIo>(
+            OpenProtocolParams {
+                handle,
+                agent: boot::image_handle(),
+                controller: None,
+            },
+            OpenProtocolAttributes::GetProtocol,
+        )
+        .ok()
+    }
+}
+
 /// Print verbose USB device information for all connected devices.
 fn print_usb_devices() {
     let handles = match boot::locate_handle_buffer(SearchType::ByProtocol(&UsbIo::GUID)) {
@@ -209,9 +227,10 @@ fn print_usb_devices() {
     debug!("Found {} USB device(s)", handles.len());
 
     for handle in handles.iter() {
-        let mut usb_io = match boot::open_protocol_exclusive::<UsbIo>(*handle) {
-            Ok(io) => io,
-            Err(_) => continue,
+        // SAFETY: handle is valid for the duration of this loop iteration.
+        let mut usb_io = match unsafe { open_usb_io(*handle) } {
+            Some(io) => io,
+            None => continue,
         };
         let desc = match usb_io.device_descriptor() {
             Ok(d) => d,
@@ -252,9 +271,10 @@ fn find_switch_position() -> Option<u8> {
     let handles = boot::locate_handle_buffer(SearchType::ByProtocol(&UsbIo::GUID)).ok()?;
 
     for handle in handles.iter() {
-        let mut usb_io = match boot::open_protocol_exclusive::<UsbIo>(*handle) {
-            Ok(io) => io,
-            Err(_) => continue,
+        // SAFETY: handle is valid for the duration of this loop iteration.
+        let mut usb_io = match unsafe { open_usb_io(*handle) } {
+            Some(io) => io,
+            None => continue,
         };
         let desc = match usb_io.device_descriptor() {
             Ok(d) => d,
