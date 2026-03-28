@@ -11,10 +11,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::time::Duration;
 
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use uefi::Identify;
 use uefi::boot;
-use uefi::boot::{LoadImageSource, SearchType};
+use uefi::boot::{LoadImageSource, OpenProtocolAttributes, OpenProtocolParams, SearchType};
 use uefi::cstr16;
 use uefi::prelude::*;
 use uefi::proto::BootPolicy;
@@ -53,7 +53,13 @@ const SWITCH_MAX_READ_ATTEMPTS: usize = 50;
 
 /// Main boot logic. Returns an error string on failure.
 fn run() -> Result<(), String> {
-    let config = load_config()?;
+    let config = match load_config() {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("Config loading failed, using default boot: {}", e);
+            config::Config::empty()
+        }
+    };
 
     // Read debug mode from EFI variable and adjust log level
     let debug_mode = read_debug_mode();
@@ -104,8 +110,19 @@ fn run() -> Result<(), String> {
             .ok_or_else(|| String::from("LoadedImage has no device handle"))?
     };
 
-    let esp_device_path = boot::open_protocol_exclusive::<DevicePath>(device_handle)
-        .map_err(|e| format!("Failed to open DevicePath on ESP device: {:?}", e))?;
+    // Use non-exclusive access for DevicePath on the ESP device, since
+    // systemd-boot may already hold this protocol open when we're chainloaded.
+    let esp_device_path = unsafe {
+        boot::open_protocol::<DevicePath>(
+            OpenProtocolParams {
+                handle: device_handle,
+                agent: boot::image_handle(),
+                controller: None,
+            },
+            OpenProtocolAttributes::GetProtocol,
+        )
+        .map_err(|e| format!("Failed to open DevicePath on ESP device: {:?}", e))?
+    };
 
     let mut buf = Vec::new();
     let mut builder = DevicePathBuilder::with_vec(&mut buf);

@@ -3,7 +3,11 @@ use alloc::string::String;
 
 use log::{debug, warn};
 use uefi::boot;
+use uefi::boot::{OpenProtocolAttributes, OpenProtocolParams};
+use uefi::proto::device_path::DevicePath;
+use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::file::{File, FileAttribute, FileMode};
+use uefi::proto::media::fs::SimpleFileSystem;
 use uefi::{CString16, cstr16};
 
 const CONFIG_PATH: &uefi::CStr16 = cstr16!("\\EFI\\boot-selector-switch\\config.conf");
@@ -33,9 +37,35 @@ impl Config {
 }
 
 /// Read and parse the config file from the ESP.
+///
+/// Opens the SimpleFileSystem protocol non-exclusively so this works when
+/// chainloaded from systemd-boot (which holds the protocol open on the ESP).
 pub fn load_config() -> Result<Config, String> {
-    let mut fs = boot::get_image_file_system(boot::image_handle())
-        .map_err(|e| format!("Could not open filesystem: {:?}", e))?;
+    // Manually replicate what get_image_file_system does, but with non-exclusive
+    // access so we don't conflict with systemd-boot holding the protocol open.
+    let loaded_image = boot::open_protocol_exclusive::<LoadedImage>(boot::image_handle())
+        .map_err(|e| format!("Could not open LoadedImage protocol: {:?}", e))?;
+    let device_handle = loaded_image
+        .device()
+        .ok_or_else(|| String::from("LoadedImage has no device handle"))?;
+    let device_path = boot::open_protocol_exclusive::<DevicePath>(device_handle)
+        .map_err(|e| format!("Could not open DevicePath on device: {:?}", e))?;
+    let fs_device = boot::locate_device_path::<SimpleFileSystem>(&mut &*device_path)
+        .map_err(|e| format!("Could not locate SimpleFileSystem device: {:?}", e))?;
+
+    // SAFETY: We use GetProtocol for non-exclusive access. The returned
+    // ScopedProtocol borrows the handle and will close on drop.
+    let mut fs = unsafe {
+        boot::open_protocol::<SimpleFileSystem>(
+            OpenProtocolParams {
+                handle: fs_device,
+                agent: boot::image_handle(),
+                controller: None,
+            },
+            OpenProtocolAttributes::GetProtocol,
+        )
+        .map_err(|e| format!("Could not open filesystem: {:?}", e))?
+    };
 
     let mut root = fs
         .open_volume()
