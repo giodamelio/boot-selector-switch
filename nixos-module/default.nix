@@ -17,12 +17,11 @@
       (lib.mapAttrsToList (pos: entry: "${pos}=${entry}") cfg.positionMap)
       + "\n");
 
-  # Script to create nixos-latest.conf and register the efi-shim in UEFI boot order.
-  # Called from extraInstallCommands after systemd-boot has installed.
-  installScript = pkgs.writeShellApplication {
-    name = "boot-selector-switch-install";
-    runtimeInputs = with pkgs; [coreutils gnused gnugrep findutils efibootmgr util-linux];
-    excludeShellChecks = ["SC2162"];
+  # Script to create nixos-latest.conf pointing to the latest NixOS generation.
+  # Called from extraInstallCommands in all install modes.
+  latestEntryScript = pkgs.writeShellApplication {
+    name = "boot-selector-switch-latest-entry";
+    runtimeInputs = with pkgs; [coreutils gnused gnugrep findutils];
     text = ''
       ESP="${espMountPoint}"
 
@@ -31,9 +30,23 @@
       if [ -n "$latest" ]; then
         cp "$latest" "$ESP/loader/entries/nixos-latest.conf"
         sed -i 's/^title .*/title NixOS (Latest)/' "$ESP/loader/entries/nixos-latest.conf"
+        # Add sort-key so it appears before numbered generation entries
+        if ! grep -q '^sort-key' "$ESP/loader/entries/nixos-latest.conf"; then
+          sed -i '/^title /a sort-key 1-nixos-latest' "$ESP/loader/entries/nixos-latest.conf"
+        fi
       fi
+    '';
+  };
 
-      # --- Register efi-shim in UEFI boot order ---
+  # Script to register the efi-shim in UEFI boot order.
+  # Only called in uefi-first install mode.
+  registerBootEntryScript = pkgs.writeShellApplication {
+    name = "boot-selector-switch-register";
+    runtimeInputs = with pkgs; [coreutils gnugrep efibootmgr util-linux findutils];
+    excludeShellChecks = ["SC2162"];
+    text = ''
+      ESP="${espMountPoint}"
+
       # Only attempt if EFI variables are accessible and efibootmgr works.
       # During VM image builds, EFI runtime may not be available.
       if ! efibootmgr > /dev/null 2>&1; then
@@ -159,15 +172,17 @@ in {
       "EFI/boot-selector-switch/config.conf" = configFile;
     };
 
-    # In uefi-first mode, register as the first UEFI boot entry.
-    # In systemd-boot-entry mode, add as a systemd-boot menu entry instead.
-    boot.loader.systemd-boot.extraInstallCommands = lib.mkIf (cfg.installMode == "uefi-first") ''
-      ${installScript}/bin/boot-selector-switch-install
+    # Always create nixos-latest.conf; only register UEFI boot entry in uefi-first mode.
+    boot.loader.systemd-boot.extraInstallCommands = ''
+      ${latestEntryScript}/bin/boot-selector-switch-latest-entry
+    '' + lib.optionalString (cfg.installMode == "uefi-first") ''
+      ${registerBootEntryScript}/bin/boot-selector-switch-register
     '';
 
     boot.loader.systemd-boot.extraEntries = lib.mkIf (cfg.installMode == "systemd-boot-entry") {
       "boot-selector-switch.conf" = ''
         title Boot Selector Switch
+        sort-key 0-boot-selector-switch
         efi /EFI/boot-selector-switch/boot-selector-switch.efi
       '';
     };
