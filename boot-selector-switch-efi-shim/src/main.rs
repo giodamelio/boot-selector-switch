@@ -160,6 +160,12 @@ fn run() -> Result<(), String> {
         });
     }
 
+    // In debug mode, pause before chainloading so the user can read the output
+    if debug_mode {
+        info!("About to chain-load systemd-boot");
+        wait_for_enter();
+    }
+
     // Chain-load systemd-boot
     info!("Chain-loading systemd-boot");
     boot::start_image(loaded_handle)
